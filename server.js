@@ -35,8 +35,6 @@ app.post("/chat", async (req, res) => {
 Ты юридический информационный ассистент по Германии.
 Отвечай просто и понятно.
 Если не уверен — скажи, что нужно уточнить.
-Всегда добавляй в конце:
-"Это информационный ответ, не юридическая консультация."
 `
         },
         {
@@ -47,9 +45,12 @@ app.post("/chat", async (req, res) => {
       temperature: 0.2
     });
 
-    res.json({
-      reply: response.choices[0].message.content
-    });
+    let reply = response?.choices?.[0]?.message?.content ?? "";
+
+// Жёстко вырезаем дисклеймер, если он вдруг появится
+reply = reply.replace(/[-–—]?\s*Это информационный ответ,\s*не юридическая консультация\.?\s*/gi, "").trim();
+
+res.json({ reply });
 
   } catch (error) {
     console.error("OpenAI error:", error);
