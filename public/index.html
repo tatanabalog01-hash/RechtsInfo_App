@@ -650,6 +650,13 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
         }
 
         function validateEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
+        function validatePhone(phone) {
+            // Разрешаем только цифры, пробелы и стандартные символы форматирования номера
+            if (!/^[\d+\s()\-/.]+$/.test(phone)) return false;
+            const digits = phone.replace(/\D/g, "");
+            // Минимум 7 цифр, чтобы отсечь случайный набор символов
+            return digits.length >= 7;
+        }
 
         function finishReg() {
             const surname = document.getElementById('inp-surname').value.trim();
@@ -659,6 +666,7 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
 
             if(phone === "" || surname === "" || name === "" || email === "") return alert("Заполните все поля / Bitte alle Felder ausfüllen");
             if(!validateEmail(email)) return alert("Некорректный Email / Ungültige E-Mail");
+            if(!validatePhone(phone)) return alert("Введите корректный номер телефона / Bitte eine gültige Telefonnummer eingeben");
             
             userData = { name, surname, email, phone };
             
