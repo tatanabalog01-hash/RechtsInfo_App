@@ -304,18 +304,18 @@
             <!-- ВАЖНО: type="tel" и autocomplete="tel" позволяют телефону подставить номер -->
             <input type="tel" id="inp-phone" class="form-input" placeholder="Telefon (+49...)" autocomplete="tel">
         </div>
-        <button id="btn-share-phone" type="button" class="btn-primary" style="margin-top:10px; background:#3a3a3a;" onclick="sharePhoneContact()"></button>
         <div style="margin:12px 0;">
-          <div style="font-weight:600; margin-bottom:6px;">Вы клиент HEIDT & ROBERS?</div>
+          <div id="client-status-label" style="font-weight:600; margin-bottom:6px;">Вы клиент страхового агенства HEIDT & ROBERS?</div>
           <label style="margin-right:12px;">
             <input type="radio" name="clientStatus" value="yes" checked>
-            Да
+            <span id="client-status-yes">Да</span>
           </label>
           <label>
             <input type="radio" name="clientStatus" value="no">
-            Нет
+            <span id="client-status-no">Нет</span>
           </label>
         </div>
+        <button id="btn-share-phone" type="button" class="btn-primary" style="margin-top:10px; background:#3a3a3a;" onclick="sharePhoneContact()"></button>
         
         <button id="btn-reg-go" class="btn-primary" onclick="finishReg()">OK</button>
     </div>
@@ -437,6 +437,9 @@
                 ],
                 regHeader: "Регистрация",
                 sharePhone: "Поделиться номером телефона",
+                clientStatusQuestion: "Вы клиент страхового агенства HEIDT & ROBERS?",
+                yes: "Да",
+                no: "Нет",
                 menu: ["Выбрать страховку", "Связаться", "Условия", "Партнеры"],
                 docs: "Мои документы",
                 promo: { t:"Акция!", d:"Бесплатный аудит ваших страховок.", b1:"Узнать больше", b2:"Я подумаю" },
@@ -478,6 +481,9 @@
                 ],
                 regHeader: "Registrierung",
                 sharePhone: "Telefonnummer teilen",
+                clientStatusQuestion: "Sind Sie Kunde der Versicherungsagentur HEIDT & ROBERS?",
+                yes: "Ja",
+                no: "Nein",
                 menu: ["Versicherung", "Kontakt", "Bedingungen", "Partner"],
                 docs: "Meine Dokumente",
                 promo: { t:"Aktion!", d:"Kostenloser Versicherungscheck.", b1:"Mehr erfahren", b2:"Ich überlege noch" },
@@ -613,6 +619,9 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
         function goReg() {
             document.getElementById('reg-header').innerText = content[lang].regHeader;
             document.getElementById('btn-share-phone').innerText = content[lang].sharePhone;
+            document.getElementById('client-status-label').innerText = content[lang].clientStatusQuestion;
+            document.getElementById('client-status-yes').innerText = content[lang].yes;
+            document.getElementById('client-status-no').innerText = content[lang].no;
             // REMOVED ERROR LINE HERE
             switchScreen('screen-reg');
         }
