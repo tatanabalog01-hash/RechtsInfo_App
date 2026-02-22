@@ -304,6 +304,7 @@
             <!-- ВАЖНО: type="tel" и autocomplete="tel" позволяют телефону подставить номер -->
             <input type="tel" id="inp-phone" class="form-input" placeholder="Telefon (+49...)" autocomplete="tel">
         </div>
+        <button id="btn-share-phone" type="button" class="btn-primary" style="margin-top:10px; background:#3a3a3a;" onclick="sharePhoneContact()"></button>
         
         <button id="btn-reg-go" class="btn-primary" onclick="finishReg()">OK</button>
     </div>
@@ -597,13 +598,32 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
 
         function goReg() {
             document.getElementById('reg-header').innerText = content[lang].regHeader;
+            document.getElementById('btn-share-phone').innerText = content[lang].sharePhone;
             // REMOVED ERROR LINE HERE
             switchScreen('screen-reg');
         }
 
-        function simSharePhone() {
-            document.getElementById('inp-phone').value = "+49 176 12345678";
-            alert("Номер получен!");
+        async function sharePhoneContact() {
+            const phoneInput = document.getElementById('inp-phone');
+            try {
+                if (navigator.contacts && navigator.contacts.select) {
+                    const contacts = await navigator.contacts.select(['tel'], { multiple: false });
+                    const pickedPhone = contacts?.[0]?.tel?.[0];
+                    if (pickedPhone) {
+                        phoneInput.value = pickedPhone;
+                        alert(lang === 'ru' ? "Номер получен!" : "Telefonnummer übernommen!");
+                        return;
+                    }
+                }
+
+                phoneInput.focus();
+                alert(lang === 'ru'
+                    ? "На этом устройстве функция выбора контакта недоступна. Введите номер вручную или используйте автоподстановку телефона."
+                    : "Kontaktfreigabe wird auf diesem Gerät nicht unterstützt. Bitte Nummer manuell eingeben oder die Auto-Ausfüllung nutzen.");
+            } catch (e) {
+                console.error('Phone share error', e);
+                alert(lang === 'ru' ? "Не удалось получить номер телефона." : "Telefonnummer konnte nicht übernommen werden.");
+            }
         }
 
         function validateEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
@@ -654,7 +674,7 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
                     
                     // ПРИВЕТСТВИЕ ДЛЯ ВЕРНУВШИХСЯ (Без длинного знакомства)
                     const welcomeMsg = lang === 'ru' 
-                    ? `С возвращением, ${userData.name}! Рады вас видеть. Чем могу помочь сегодня?` 
+                    ? `С возвращением, ${userData.name}! Рад вас видеть. Чем могу помочь сегодня?` 
                     : `Willkommen zurück, ${userData.name}! Schön, Sie zu sehen. Wie kann ich heute helfen?`;
                     addBotMsg(welcomeMsg);
                 }
