@@ -305,6 +305,17 @@
             <input type="tel" id="inp-phone" class="form-input" placeholder="Telefon (+49...)" autocomplete="tel">
         </div>
         <button id="btn-share-phone" type="button" class="btn-primary" style="margin-top:10px; background:#3a3a3a;" onclick="sharePhoneContact()"></button>
+        <div style="margin:12px 0;">
+          <div style="font-weight:600; margin-bottom:6px;">Вы клиент HEIDT & ROBERS?</div>
+          <label style="margin-right:12px;">
+            <input type="radio" name="clientStatus" value="yes" checked>
+            Да
+          </label>
+          <label>
+            <input type="radio" name="clientStatus" value="no">
+            Нет
+          </label>
+        </div>
         
         <button id="btn-reg-go" class="btn-primary" onclick="finishReg()">OK</button>
     </div>
@@ -391,6 +402,8 @@
         // Функция отправки в Google Sheets (только учетные данные и язык)
         function sendToSheet() {
             if (!GOOGLE_SCRIPT_URL) return; 
+            const client_status =
+              document.querySelector('input[name="clientStatus"]:checked')?.value || "unknown";
             
             // Отправляем только нужные поля
             const payload = {
@@ -398,6 +411,7 @@
                 surname: userData.surname,
                 email: userData.email,
                 phone: userData.phone,
+                client_status: client_status,
                 lang: lang
             };
             
