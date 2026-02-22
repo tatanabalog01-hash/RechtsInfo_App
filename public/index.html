@@ -251,6 +251,7 @@
 
     <!-- СКРЫТЫЙ INPUT ДЛЯ ФАЙЛОВ -->
     <input type="file" id="hidden-file-input" style="display: none;" onchange="handleFileSelect(this)">
+    <input type="file" id="fileUpload" accept=".pdf,image/*">
 
     <!-- ПРОМО -->
     <div id="promo-modal" class="promo-overlay hidden">
@@ -330,6 +331,7 @@
         </div>
 
         <div class="chat-area" id="chat-box"></div>
+        <button id="consultBtn" type="button" style="display:none; margin-top:12px;"></button>
 
         <div class="chat-footer">
             <div class="input-wrapper">
@@ -397,6 +399,8 @@
         let lang = 'ru';
         const agentPhone = "4915257266255";
         let userData = { name: "", surname: "", phone: "", email: "" };
+        let lastUserMessage = "";
+        let lastAnalysis = "";
         let userUploads = []; // Список загруженных пользователем файлов
 
         // Функция отправки в Google Sheets (только учетные данные и язык)
@@ -437,6 +441,7 @@
                 ],
                 regHeader: "Регистрация",
                 sharePhone: "Поделиться номером телефона",
+                consultBtn: "Связаться с консультантом",
                 clientStatusQuestion: "Вы клиент страхового агенства HEIDT & ROBERS?",
                 yes: "Да",
                 no: "Нет",
@@ -466,6 +471,12 @@
 3. Локальное хранение: Ваши чаты и загруженные файлы хранятся локально на вашем устройстве. Владелец приложения не имеет к ним доступа без вашего прямого запроса на помощь агента.
 4. Маркетинговое использование: Используя приложение, вы соглашаетесь на получение рекламно-информационных сообщений от агентства Heidt & Robers. Данное согласие является обязательным условием использования сервиса.
 5. Передача данных: Ваши данные передаются третьим лицам (например, в WhatsApp) только в момент активации функции связи со страховым агентом.
+<p>
+При нажатии на кнопку «Связаться» пользователь самостоятельно инициирует
+переход в мессенджер WhatsApp. Передача информации осуществляется напрямую
+между пользователем и WhatsApp в соответствии с политикой конфиденциальности WhatsApp.
+Приложение не осуществляет автоматическую передачу данных без действия пользователя.
+</p>
 6. Ваши права: Вы имеете право на информацию, исправление или удаление ваших данных. Контакт для связи: info@heidt-robers.de.`,
                 docsScreen: { t:"Мои документы", u:"Ваши загрузки", a:"Документы Heidt & Robers", add:"Добавить файл" }
             },
@@ -481,6 +492,7 @@
                 ],
                 regHeader: "Registrierung",
                 sharePhone: "Telefonnummer teilen",
+                consultBtn: "Mit Berater verbinden",
                 clientStatusQuestion: "Sind Sie Kunde der Versicherungsagentur HEIDT & ROBERS?",
                 yes: "Ja",
                 no: "Nein",
@@ -511,6 +523,12 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
 3. Lokale Speicherung: Die Inhalte Ihrer Chat-Verläufe werden lokal auf Ihrem Endgerät gespeichert. Der Anbieter hat keinen Zugriff auf diese Daten, es sei denn, Sie fordern explizit eine Beratung an.
 4. Werbliche Nutzung: Mit der Nutzung der App willigen Sie ein, werbliche Informationen der Agentur Heidt & Robers zu erhalten. Diese Einwilligung ist Voraussetzung für die Nutzung der App.
 5. Weitergabe an Dritte: Eine Datenübermittlung (z.B. an WhatsApp) erfolgt nur nach Ihrer aktiven Handlung, um einen Agenten zu kontaktieren.
+<p>
+Beim Klick auf die Schaltfläche „Kontakt aufnehmen“ initiiert der Nutzer
+selbstständig die Weiterleitung zu WhatsApp. Die Datenübermittlung erfolgt
+direkt zwischen dem Nutzer und WhatsApp gemäß deren Datenschutzrichtlinien.
+Die Anwendung übermittelt keine Daten automatisch ohne aktive Handlung des Nutzers.
+</p>
 6. Ihre Rechte: Sie haben das Recht auf Auskunft, Berichtigung und Löschung Ihrer Daten gemäß DSGVO.`,
                 docsScreen: { t:"Meine Dokumente", u:"Ihre Uploads", a:"Dokumente von Heidt & Robers", add:"Datei hinzufügen" }
             }
@@ -567,7 +585,10 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
             {cat: 8, i:'👨‍👩‍👧‍👦', ru: {t:'Familien-Pakete', d:'Комплексная защита для всей семьи.'}, de: {t:'Familien-Pakete', d:'Rundum-Schutz für die ganze Familie.'}}
         ];
 
-        window.onload = function() { loadUser(); };
+        window.onload = function() { 
+            initConsultButton();
+            loadUser(); 
+        };
 
         function setLang(l) {
             lang = l;
@@ -588,6 +609,7 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
             document.getElementById('menu-info').innerText = c.menu[2];
             document.getElementById('menu-partners').innerText = c.menu[3];
             document.getElementById('btn-docs').innerText = c.docs;
+            document.getElementById('consultBtn').innerText = c.consultBtn;
             
             // Промо с переводом
             document.querySelector('.promo-title').innerText = c.promo.t;
@@ -744,16 +766,36 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
+        function initConsultButton() {
+            const consultBtn = document.getElementById("consultBtn");
+            if (!consultBtn) return;
+
+            consultBtn.addEventListener("click", () => {
+                const summaryText = encodeURIComponent(
+                    (lang === 'ru'
+                        ? "Здравствуйте. У меня сложная юридическая ситуация.\n\nВопрос:\n"
+                        : "Guten Tag. Ich habe eine komplexe rechtliche Situation.\n\nFrage:\n") +
+                    (lastUserMessage || "") +
+                    (lang === 'ru' ? "\n\nАнализ AI:\n" : "\n\nAI-Analyse:\n") +
+                    (lastAnalysis || "")
+                );
+
+                const url = `https://wa.me/${agentPhone}?text=${summaryText}`;
+                window.open(url, "_blank");
+            });
+        }
+
                 async function sendMsg() {
     const input = document.getElementById('chat-inp');
-    const message = input.value.trim();
-    if (!message) return;
+    const userInput = input.value.trim();
+    if (!userInput) return;
+    lastUserMessage = userInput;
 
     const chatBox = document.getElementById('chat-box');
 
     const userMsg = document.createElement('div');
     userMsg.className = 'msg user';
-    userMsg.innerText = message;
+    userMsg.innerText = userInput;
     chatBox.appendChild(userMsg);
     chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -777,13 +819,23 @@ Schlichtungsstelle: Versicherungsombudsmann e.V., Postfach 08 06 32, 10006 Berli
   const response = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message })
+    body: JSON.stringify({ message: userInput })
   });
 
   const data = await response.json();
 
   loadingRow.remove();
-  addBotMsg(data.reply);
+  lastAnalysis = data.analysis || "";
+  addBotMsg(data.analysis);
+
+  const consultBtn = document.getElementById("consultBtn");
+  if (consultBtn) {
+    if (data.riskLevel === "medium" || data.riskLevel === "high") {
+      consultBtn.style.display = "block";
+    } else {
+      consultBtn.style.display = "none";
+    }
+  }
 } catch (error) {
   console.error(error);
   loadingRow.remove();
