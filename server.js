@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import fs from "fs";
 import fsPromises from "fs/promises";
-import pdf from "pdf-parse/node";
+import { PDFParse } from "pdf-parse";
 import multer from "multer";
 import Tesseract from "tesseract.js";
 import { Pool } from "pg";
@@ -50,8 +50,13 @@ async function extractTextFromUpload(file) {
 
   if (file.mimetype === "application/pdf") {
     const dataBuffer = fs.readFileSync(file.path);
-    const pdfData = await pdf(dataBuffer);
-    return pdfData.text || "";
+    const parser = new PDFParse({ data: dataBuffer });
+    try {
+      const result = await parser.getText();
+      return result.text || "";
+    } finally {
+      await parser.destroy();
+    }
   }
 
   if (file.mimetype?.startsWith("image/")) {
