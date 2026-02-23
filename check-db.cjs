@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 // check-db.cjs
 const { Client } = require("pg");
 
