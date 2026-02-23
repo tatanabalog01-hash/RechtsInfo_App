@@ -1,6 +1,7 @@
 // src/guards/citationGuard.js  (ESM)
 
-const NORM_REGEX = /(?:§\s*\d+[a-zA-Z]*|Art\.\s*\d+[a-zA-Z]*)\s*(?:Abs\.\s*\d+[a-zA-Z]*\s*)?(?:Satz\s*\d+\s*)?(?:Nr\.\s*\d+\s*)?(?:lit\.\s*[a-z]\s*)?(?:Buchst\.\s*[a-z]\s*)?(?:[A-ZÄÖÜ]{2,}(?:\s*[IVX]{1,4})?)\b/g;
+const NORM_REGEX =
+  /(?:§\s*\d+[a-zA-Z]*|Art\.\s*\d+[a-zA-Z]*)\s*(?:Abs\.\s*\d+[a-zA-Z]*\s*)?(?:S(?:atz)?\.?\s*\d+\s*)?(?:Nr\.\s*\d+\s*)?(?:lit\.\s*[a-z]\s*)?(?:Buchst\.\s*[a-z]\s*)?(?:[A-Za-zÄÖÜäöü]{2,}(?:\s*[IVX]{1,4})?)\b/g;
 
 function normalizeNorm(s) {
   return s
@@ -36,7 +37,15 @@ export function buildNormAllowlist(sources, { maxNorms = 80 } = {}) {
 
   for (const src of sources || []) {
     const srcId = src?.id || src?.source_id || src?.sourceId;
-    const text = src?.text || src?.content || "";
+    const text = [
+      src?.section && src?.law ? `${src.section} ${src.law}` : "",
+      src?.section || "",
+      src?.title || "",
+      src?.text || src?.content || "",
+      src?.law || "",
+    ]
+      .filter(Boolean)
+      .join("\n");
     const norms = extractNorms(text);
 
     for (const norm of norms) {

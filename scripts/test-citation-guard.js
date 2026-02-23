@@ -36,6 +36,13 @@ runCase("allowlist extracts norms", () => {
   assert(allowlist.allowedNorms.has("Art. 6 Abs. 1 DSGVO"), "Missing Art. 6 Abs. 1 DSGVO");
 });
 
+runCase("extracts mixed-case law code like BUrlG", () => {
+  const bUrlG = buildNormAllowlist([
+    { id: "S1", text: "Bei Beendigung besteht Anspruch nach § 7 Abs. 4 BUrlG." },
+  ]);
+  assert(bUrlG.allowedNorms.has("§ 7 Abs. 4 BUrlG"), "Missing § 7 Abs. 4 BUrlG");
+});
+
 runCase("keeps allowed norm untouched", () => {
   const input = "Применима § 823 Abs. 1 BGB.";
   const out = sanitizeAnswerCitations(input, allowlist.allowedNorms);
