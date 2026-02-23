@@ -3,3 +3,5 @@ node_modules
 .DS_Store
 npm-debug.log
 Новый текстовый документ.txt
+kb/_monthly_tmp/
+kb/laws_xml/downloads/*/unzipped/
