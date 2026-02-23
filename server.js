@@ -101,13 +101,26 @@ async function retrieveLegalSources(_queryText, { topK, lawCodes } = {}) {
         SELECT value AS version_tag
         FROM law_dataset_meta
         WHERE key = 'active_version_tag'
+      ),
+      effective_version AS (
+        SELECT CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM law_chunks
+            WHERE version_tag = (SELECT version_tag FROM active_version)
+          ) THEN (SELECT version_tag FROM active_version)
+          ELSE (
+            SELECT MAX(version_tag)
+            FROM law_chunks
+          )
+        END AS version_tag
       )
       SELECT lc.law, lc.section, lc.title, lc.text, lc.source,
              1 - (lc.embedding <=> $1::vector) AS score
       FROM law_chunks lc
       WHERE (
-        lc.version_tag = (SELECT version_tag FROM active_version)
-        OR NOT EXISTS (SELECT 1 FROM active_version)
+        (SELECT version_tag FROM effective_version) IS NULL
+        OR lc.version_tag = (SELECT version_tag FROM effective_version)
       )
       AND (
         COALESCE(array_length($3::text[], 1), 0) = 0
@@ -118,6 +131,14 @@ async function retrieveLegalSources(_queryText, { topK, lawCodes } = {}) {
     `,
     [vectorLiteral, limit, lawCodeFilter]
   );
+
+  if (!rows.length) {
+    console.warn("LAW_RETRIEVAL_EMPTY", {
+      querySample: String(_queryText).slice(0, 200),
+      topK: limit,
+      lawCodes: lawCodeFilter,
+    });
+  }
 
   return rows.map((r) => ({
     law: r.law,
