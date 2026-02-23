@@ -12,6 +12,7 @@ import { fileURLToPath } from "url";
 import { buildNormAllowlist, sanitizeAnswerCitations } from "./src/guards/citationGuard.js";
 import { buildLegalBasisQuery, isLegalBasisRequest } from "./src/retrieval/legalBasisQuery.js";
 import { createLegalAnswerer } from "./ai/legalAnswer.js";
+import { createLawRetrieverPg } from "./ai/retrieveLawsPg.js";
 
 dotenv.config();
 
@@ -43,6 +44,13 @@ const dbPool = process.env.DATABASE_URL
 async function retrieveLawsStub(_query) {
   // ВРЕМЕННО: возвращает пусто, пока не подключим отдельный retriever под laws/law_catalog.
   return "";
+}
+
+let retrieveLaws = retrieveLawsStub;
+try {
+  retrieveLaws = createLawRetrieverPg();
+} catch (error) {
+  console.warn("LEGAL_RETRIEVER_DISABLED", error?.message || error);
 }
 
 function redactPII(text = "") {
@@ -311,7 +319,7 @@ const legalAnswer = createLegalAnswerer({
     const json = await response.json();
     return json?.choices?.[0]?.message?.content || "";
   },
-  retrieveLaws: retrieveLawsStub,
+  retrieveLaws,
 });
 
 app.post("/api/legal", async (req, res) => {
