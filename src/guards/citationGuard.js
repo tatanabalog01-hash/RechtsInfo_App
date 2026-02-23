@@ -1,7 +1,7 @@
 // src/guards/citationGuard.js  (ESM)
 
 const NORM_REGEX =
-  /(?:§\s*\d+[a-zA-Z]*|Art\.\s*\d+[a-zA-Z]*)\s*(?:Abs\.\s*\d+[a-zA-Z]*\s*)?(?:S(?:atz)?\.?\s*\d+\s*)?(?:Nr\.\s*\d+\s*)?(?:lit\.\s*[a-z]\s*)?(?:Buchst\.\s*[a-z]\s*)?(?:[A-Za-zÄÖÜäöü]{2,}(?:\s*[IVX]{1,4})?)\b/g;
+  /(?:§\s*\d+[a-zA-Z]*|Art\.\s*\d+[a-zA-Z]*)\s*(?:(?:Abs\.|Absatz)\s*\d+[a-zA-Z]*\s*)?(?:(?:Satz)\s*\d+\s*)?(?:(?:Nr\.|Nummer)\s*\d+\s*)?(?:(?:lit\.?)\s*[a-z]\s*)?(?:(?:Buchst\.|Buchstabe)\s*[a-z]\s*)?(?:[A-Za-zÄÖÜäöü]{2,}(?:\s*(?:[IVX]{1,4}|[0-9]{1,3}))?)?\b/g;
 
 function normalizeNorm(s) {
   return s
