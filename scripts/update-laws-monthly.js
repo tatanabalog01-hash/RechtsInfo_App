@@ -12,8 +12,11 @@ const TMP_DIR = process.env.LAW_TMP_DIR || path.join(process.cwd(), "kb", "_mont
 const ARCHIVE_DIR = process.env.LAW_ARCHIVE_DIR || path.join(TMP_DIR, "archives");
 const LAW_STAGING_ROOT = process.env.LAW_STAGING_ROOT || path.join(process.cwd(), "kb", "laws_xml", "downloads");
 const DATABASE_URL = process.env.DATABASE_URL;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 
 if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
+if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -33,6 +36,106 @@ function run(cmd, args, env = process.env) {
 
 function uniq(arr) {
   return [...new Set(arr)];
+}
+
+async function getEmbedding(input) {
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_EMBEDDING_MODEL,
+      input: String(input || "").slice(0, 8000),
+    }),
+  });
+  if (!res.ok) throw new Error(`Embeddings HTTP ${res.status}`);
+  const json = await res.json();
+  const embedding = json?.data?.[0]?.embedding;
+  if (!Array.isArray(embedding)) throw new Error("Embedding missing");
+  return embedding;
+}
+
+async function detectLawChunkVectorDim(client) {
+  const { rows } = await client.query(`
+    SELECT COALESCE(
+      (regexp_match(format_type(a.atttypid, a.atttypmod), 'vector\\((\\d+)\\)'))[1],
+      '1536'
+    ) AS dim
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    WHERE c.relname = 'law_chunks'
+      AND a.attname = 'embedding'
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+    LIMIT 1
+  `);
+  return Number(rows[0]?.dim || 1536);
+}
+
+async function ensureLawCatalogTable(client) {
+  const vectorDim = await detectLawChunkVectorDim(client);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS law_catalog (
+      law_code TEXT PRIMARY KEY,
+      title_de TEXT,
+      title_ru TEXT,
+      keywords TEXT,
+      embedding VECTOR(${vectorDim}),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS law_catalog_embedding_idx
+      ON law_catalog USING ivfflat (embedding vector_cosine_ops)
+  `);
+  return vectorDim;
+}
+
+async function rebuildLawCatalog({ client, activeVersionTag }) {
+  const vectorDim = await ensureLawCatalogTable(client);
+  const laws = await client.query(
+    `
+      SELECT
+        law AS law_code,
+        MAX(COALESCE(title, '')) AS title_de,
+        ''::text AS title_ru
+      FROM law_chunks
+      WHERE version_tag = $1
+        AND law IS NOT NULL
+        AND btrim(law) <> ''
+      GROUP BY law
+      ORDER BY law
+    `,
+    [activeVersionTag]
+  );
+
+  console.log(`Rebuilding law_catalog for version ${activeVersionTag}: ${laws.rows.length} laws, VECTOR(${vectorDim})`);
+
+  for (const row of laws.rows) {
+    const lawCode = String(row.law_code || "").trim();
+    if (!lawCode) continue;
+
+    const textForEmbed = [lawCode, row.title_de || "", row.title_ru || ""].join(" | ");
+    const embedding = await getEmbedding(textForEmbed);
+    const vector = `[${embedding.join(",")}]`;
+
+    await client.query(
+      `
+        INSERT INTO law_catalog (law_code, title_de, title_ru, keywords, embedding, updated_at)
+        VALUES ($1, $2, $3, $4, $5::vector, now())
+        ON CONFLICT (law_code)
+        DO UPDATE SET
+          title_de = EXCLUDED.title_de,
+          title_ru = EXCLUDED.title_ru,
+          keywords = EXCLUDED.keywords,
+          embedding = EXCLUDED.embedding,
+          updated_at = now()
+      `,
+      [lawCode, row.title_de || "", row.title_ru || "", null, vector]
+    );
+  }
 }
 
 const MONTHS = {
@@ -250,6 +353,8 @@ async function main() {
 
   const c2 = await pool.connect();
   try {
+    await rebuildLawCatalog({ client: c2, activeVersionTag: latest.versionTag });
+    console.log("law_catalog rebuilt");
     await pruneOldVersions(c2, latest.versionTag);
     console.log("Old versions pruned");
   } finally {
