@@ -280,6 +280,8 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       fallbackRetrievalUsed = true;
     }
 
+    console.log("ALLOWED_NORMS size:", normAllowlist.allowedNorms.size);
+    console.log("ALLOWED_NORMS sample:", [...normAllowlist.allowedNorms].slice(0, 10));
     console.log("CITATION_GUARD_ALLOWLIST", {
       requestId,
       timestamp: new Date().toISOString(),
