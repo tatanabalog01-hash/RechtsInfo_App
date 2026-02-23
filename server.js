@@ -346,7 +346,7 @@ app.post("/chat", upload.single("file"), async (req, res) => {
 РќРµ Р·Р°РїСЂР°С€РёРІР°С‚СЊ Р»РёС€РЅРёРµ РїРµСЂСЃРѕРЅР°Р»СЊРЅС‹Рµ РґР°РЅРЅС‹Рµ.
 
 LEGAL_SOURCES:\n${JSON.stringify(legalSourcesWithIds)}\n\nCRITICAL RULE - LAW CITATIONS (NO HALLUCINATIONS):\nYou may cite legal norms (e.g., В§ вЂ¦ BGB, Art. вЂ¦ DSGVO, В§ вЂ¦ SGB) ONLY if the norm string appears in ALLOWED_NORMS below.\n- You MUST copy-paste the norm EXACTLY as written in ALLOWED_NORMS (character-for-character).
-- If the user asks which law/article/paragraph regulates their issue and ALLOWED_NORMS is not empty, you MUST cite the most relevant exact norms from ALLOWED_NORMS (prefer 2-5 norms if available).\n- If a relevant norm is NOT in ALLOWED_NORMS, do NOT cite it. Instead say: "РќРµ РјРѕРіСѓ РїРѕРґС‚РІРµСЂРґРёС‚СЊ РєРѕРЅРєСЂРµС‚РЅСѓСЋ РЅРѕСЂРјСѓ РїРѕ РёР·РІР»РµС‡С‘РЅРЅС‹Рј РёСЃС‚РѕС‡РЅРёРєР°Рј" and ask what document/details to retrieve next.\n- Never invent В§, Absatz, Satz, Nummer, Buchstabe, Article, or law code.\n- If you cite a norm, append the source marker in brackets exactly like: [S#] (example: "В§ 823 Abs. 1 BGB [S2]").\n- Do not use any [S#] that is not present in the provided LEGAL_SOURCES.\n\nALLOWED_NORMS:\n${normAllowlist.allowedNormsText || "(none)"}\n\nNORM_SOURCES (use these [S#] markers):\n${normAllowlist.normSourcesText || "(none)"}\n`.trim();
+- If the user asks which law/article/paragraph regulates their issue and ALLOWED_NORMS is not empty, you MUST cite the most relevant exact norms from ALLOWED_NORMS (prefer 2-5 norms if available).\n- If a relevant norm is NOT in ALLOWED_NORMS, do NOT cite it. Instead say: "Не могу подтвердить конкретные нормы по извлечённым источникам" and ask what document/details to retrieve next.\n- Never mention "allowed norms", "allowlist", "whitelist" or internal restrictions.\n- Never invent В§, Absatz, Satz, Nummer, Buchstabe, Article, or law code.\n- If you cite a norm, append the source marker in brackets exactly like: [S#] (example: "В§ 823 Abs. 1 BGB [S2]").\n- Do not use any [S#] that is not present in the provided LEGAL_SOURCES.\n\nALLOWED_NORMS:\n${normAllowlist.allowedNormsText || "(none)"}\n\nNORM_SOURCES (use these [S#] markers):\n${normAllowlist.normSourcesText || "(none)"}\n`.trim();
 
     const user = hasDocumentText
       ? `Р’РѕРїСЂРѕСЃ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ:\n${sanitizedMessage}\n\nРўРµРєСЃС‚ РґРѕРєСѓРјРµРЅС‚Р°:\n${sanitizedDocumentText}`
@@ -423,4 +423,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`рџ”Ґ РЎРµСЂРІРµСЂ СЂР°Р±РѕС‚Р°РµС‚ РЅР° РїРѕСЂС‚Сѓ ${PORT}`);
 });
+
+
 
