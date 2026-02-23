@@ -11,6 +11,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { buildNormAllowlist, sanitizeAnswerCitations } from "./src/guards/citationGuard.js";
 import { buildLegalBasisQuery, isLegalBasisRequest } from "./src/retrieval/legalBasisQuery.js";
+import { createLegalAnswerer } from "./ai/legalAnswer.js";
 
 dotenv.config();
 
@@ -38,6 +39,11 @@ const dbPool = process.env.DATABASE_URL
       ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
     })
   : null;
+
+async function retrieveLawsStub(_query) {
+  // ВРЕМЕННО: возвращает пусто, пока не подключим отдельный retriever под laws/law_catalog.
+  return "";
+}
 
 function redactPII(text = "") {
   return text
@@ -278,6 +284,47 @@ const SUMMARY_SCHEMA = {
   },
   required: ["summary", "whyHighRisk", "nextActionForManager"],
 };
+
+const legalAnswer = createLegalAnswerer({
+  llmCall: async ({ system, user, temperature }) => {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: typeof temperature === "number" ? temperature : 0.2,
+        store: false,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI HTTP ${response.status}`);
+    }
+
+    const json = await response.json();
+    return json?.choices?.[0]?.message?.content || "";
+  },
+  retrieveLaws: retrieveLawsStub,
+});
+
+app.post("/api/legal", async (req, res) => {
+  try {
+    const question = String(req.body?.question || req.body?.message || "");
+    if (!question.trim()) return res.status(400).json({ error: "Empty question" });
+
+    const result = await legalAnswer(question);
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ error: String(e?.message || e) });
+  }
+});
 
 // ===== С‡Р°С‚ =====
 app.post("/chat", upload.single("file"), async (req, res) => {
