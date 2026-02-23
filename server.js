@@ -10,6 +10,7 @@ import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
 import { buildNormAllowlist, sanitizeAnswerCitations } from "./src/guards/citationGuard.js";
+import { buildLegalBasisQuery, isLegalBasisRequest } from "./src/retrieval/legalBasisQuery.js";
 
 dotenv.config();
 
@@ -68,8 +69,9 @@ async function extractTextFromUpload(file) {
   return "";
 }
 
-async function retrieveLegalSources(_sanitizedText) {
-  if (!_sanitizedText || !dbPool) return [];
+async function retrieveLegalSources(_queryText, { topK } = {}) {
+  if (!_queryText || !dbPool) return [];
+  const limit = Number.isFinite(topK) && topK > 0 ? topK : LEGAL_TOP_K;
 
   const embRes = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
@@ -79,7 +81,7 @@ async function retrieveLegalSources(_sanitizedText) {
     },
     body: JSON.stringify({
       model: OPENAI_EMBEDDING_MODEL,
-      input: _sanitizedText.slice(0, 8000),
+      input: _queryText.slice(0, 8000),
     }),
   });
   if (!embRes.ok) throw new Error(`Embeddings HTTP ${embRes.status}`);
@@ -106,7 +108,7 @@ async function retrieveLegalSources(_sanitizedText) {
       ORDER BY lc.embedding <=> $1::vector
       LIMIT $2
     `,
-    [vectorLiteral, LEGAL_TOP_K]
+    [vectorLiteral, limit]
   );
 
   return rows.map((r) => ({
@@ -226,7 +228,13 @@ app.post("/chat", upload.single("file"), async (req, res) => {
     const sanitizedText = hasDocumentText
       ? `${sanitizedMessage}\n\n[DOCUMENT_TEXT]\n${sanitizedDocumentText}`
       : sanitizedMessage;
-    const legalSources = await retrieveLegalSources(sanitizedText);
+    const userText = req.body?.message || "";
+    const legalBasisMode = isLegalBasisRequest(userText);
+    const retrievalQuery = legalBasisMode
+      ? buildLegalBasisQuery(userText)
+      : userText;
+    const topK = legalBasisMode ? 10 : 6;
+    const legalSources = await retrieveLegalSources(retrievalQuery, { topK });
     const legalSourcesWithIds = legalSources.map((src, index) => ({
       ...src,
       id: `S${index + 1}`,
@@ -238,6 +246,8 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       legalSourcesCount: legalSourcesWithIds.length,
       allowedNormsCount: normAllowlist.allowedNorms.size,
       allowedNormsPreview: [...normAllowlist.allowedNorms].slice(0, 10),
+      retrievalMode: legalBasisMode ? "legal_basis_enriched" : "default",
+      retrievalTopK: topK,
       sourceIds: legalSourcesWithIds.map((s) => s.id),
     });
     const financialRiskServer = computeFinancialRisk(sanitizedText);
