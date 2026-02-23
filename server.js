@@ -363,12 +363,20 @@ LEGAL_SOURCES:\n${JSON.stringify(legalSourcesWithIds)}\n\nCRITICAL RULE - LAW CI
 
     const citationSanitization = sanitizeAnswerCitations(ai.analysis, normAllowlist.allowedNorms);
     ai.analysis = citationSanitization.sanitizedText;
+    const hasAllowedNormInAnswer = [...normAllowlist.allowedNorms].some((norm) => ai.analysis.includes(norm));
+    if (legalBasisMode && !hasAllowedNormInAnswer) {
+      ai.analysis =
+        "Не могу подтвердить конкретные нормы по извлечённым источникам. " +
+        "Пришлите текст расчёта при увольнении, приказ/соглашение об увольнении или документ работодателя, чтобы я подтянул точные нормы и статьи.";
+    }
     if (citationSanitization.removedNorms.length || citationSanitization.replacedNorms.length) {
       console.log("CITATION_GUARD", {
         requestId,
         timestamp: new Date().toISOString(),
         removedNorms: citationSanitization.removedNorms,
         replacedNorms: citationSanitization.replacedNorms,
+        legalBasisMode,
+        hasAllowedNormInAnswer,
       });
     }
     ai.financialRisk = financialRiskServer;

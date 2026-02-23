@@ -24,6 +24,14 @@ function extractNorms(text) {
   return [...out];
 }
 
+function buildNormFromMetadata(section, lawCodeOrName) {
+  const s = String(section || "").trim();
+  const law = String(lawCodeOrName || "").trim();
+  if (!s || !law) return null;
+  if (!/^(?:§|Art\.)/i.test(s)) return null;
+  return normalizeNorm(`${s} ${law}`);
+}
+
 /**
  * Build allowlist from retrieved sources.
  * sources format expected:
@@ -54,6 +62,8 @@ export function buildNormAllowlist(sources, { maxNorms = 80 } = {}) {
       src?.meta?.short ||
       null;
     const norms = extractNorms(text);
+    const metadataNorm = buildNormFromMetadata(src?.section, lawCode || src?.law);
+    if (metadataNorm && !norms.includes(metadataNorm)) norms.push(metadataNorm);
 
     for (let norm of norms) {
       // если regex нашёл "§ 7 Abs. 4" без "BUrlG", а lawCode есть — пришиваем код
