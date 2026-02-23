@@ -132,6 +132,23 @@ function computeFinancialRisk(text = "") {
   return "low";
 }
 
+function mergeLegalSourcesUnique(primary = [], secondary = []) {
+  const merged = [];
+  const seen = new Set();
+  for (const src of [...primary, ...secondary]) {
+    const key = [
+      src?.law || "",
+      src?.section || "",
+      src?.title || "",
+      String(src?.text || "").slice(0, 300),
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(src);
+  }
+  return merged;
+}
+
 async function openaiChatStrictJSON({ system, user, schema, schemaName }) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -234,12 +251,35 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       ? buildLegalBasisQuery(userText)
       : userText;
     const topK = legalBasisMode ? 10 : 6;
-    const legalSources = await retrieveLegalSources(retrievalQuery, { topK });
-    const legalSourcesWithIds = legalSources.map((src, index) => ({
+    let legalSources = await retrieveLegalSources(retrievalQuery, { topK });
+    let legalSourcesWithIds = legalSources.map((src, index) => ({
       ...src,
       id: `S${index + 1}`,
     }));
-    const normAllowlist = buildNormAllowlist(legalSourcesWithIds);
+    let normAllowlist = buildNormAllowlist(legalSourcesWithIds);
+
+    let fallbackRetrievalUsed = false;
+    if (legalBasisMode && normAllowlist.allowedNorms.size === 0) {
+      const fallbackQuery = [
+        "Arbeitsrecht",
+        "Urlaub",
+        "Urlaubsabgeltung",
+        "Urlaubsentgelt",
+        "Kündigung",
+        "Beendigung des Arbeitsverhältnisses",
+        "Bundesurlaubsgesetz BUrlG",
+        "offene Zahlung Arbeitgeber",
+      ].join(" | ");
+      const fallbackSources = await retrieveLegalSources(fallbackQuery, { topK: 14 });
+      legalSources = mergeLegalSourcesUnique(legalSources, fallbackSources);
+      legalSourcesWithIds = legalSources.map((src, index) => ({
+        ...src,
+        id: `S${index + 1}`,
+      }));
+      normAllowlist = buildNormAllowlist(legalSourcesWithIds);
+      fallbackRetrievalUsed = true;
+    }
+
     console.log("CITATION_GUARD_ALLOWLIST", {
       requestId,
       timestamp: new Date().toISOString(),
@@ -248,6 +288,13 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       allowedNormsPreview: [...normAllowlist.allowedNorms].slice(0, 10),
       retrievalMode: legalBasisMode ? "legal_basis_enriched" : "default",
       retrievalTopK: topK,
+      fallbackRetrievalUsed,
+      sourcesPreview: legalSourcesWithIds.slice(0, 5).map((s) => ({
+        id: s.id,
+        law: s.law,
+        section: s.section,
+        title: s.title,
+      })),
       sourceIds: legalSourcesWithIds.map((s) => s.id),
     });
     const financialRiskServer = computeFinancialRisk(sanitizedText);
