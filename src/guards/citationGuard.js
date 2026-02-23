@@ -55,8 +55,14 @@ export function buildNormAllowlist(sources, { maxNorms = 80 } = {}) {
       null;
     const norms = extractNorms(text);
 
-    for (const norm of norms) {
+    for (let norm of norms) {
+      // если regex нашёл "§ 7 Abs. 4" без "BUrlG", а lawCode есть — пришиваем код
+      if (lawCode && !/\b[A-Za-zÄÖÜäöü]{2,}\b$/.test(norm)) {
+        norm = `${norm} ${lawCode}`.trim();
+      }
+
       allowed.add(norm);
+
       if (!normToSourceIds.has(norm)) normToSourceIds.set(norm, new Set());
       if (srcId) normToSourceIds.get(norm).add(srcId);
     }
