@@ -9,6 +9,15 @@
     "multer": "^2.0.2",
     "openai": "^4.0.0",
     "pdf-parse": "^2.4.5",
-    "tesseract.js": "^7.0.0"
+    "pg": "^8.18.0",
+    "tar": "^7.5.9",
+    "tesseract.js": "^7.0.0",
+    "unzipper": "^0.12.3"
+  },
+  "scripts": {
+    "ingest:laws": "node scripts/ingest-laws.js",
+    "db:setup": "node db-setup.cjs",
+    "check-db": "node check-db.cjs",
+    "laws:update": "node scripts/update-laws-monthly.js"
   }
 }

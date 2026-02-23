@@ -1,17 +1,19 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import OpenAI from "openai";
 import fs from "fs";
-import pdf from "pdf-parse";
+import fsPromises from "fs/promises";
+import pdf from "pdf-parse/node";
 import multer from "multer";
 import Tesseract from "tesseract.js";
+import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
 
 dotenv.config();
 
 const app = express();
+fs.mkdirSync("uploads", { recursive: true });
 const upload = multer({ dest: "uploads/" });
 app.use(cors());
 app.use(express.json());
@@ -22,64 +24,218 @@ const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "public")));
 
 // ===== OpenAI =====
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+const LEGAL_TOP_K = Number(process.env.LEGAL_TOP_K || 5);
+const MANAGER_WEBHOOK_URL = process.env.MANAGER_WEBHOOK_URL || "";
+
+const dbPool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+    })
+  : null;
+
+function redactPII(text = "") {
+  return text
+    .replace(/(\+?\d[\d\s().-]{7,}\d)/g, "[REDACTED_PHONE]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[REDACTED_EMAIL]")
+    .replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b/g, "[REDACTED_IBAN]")
+    .replace(/\b(AZ|Aktenzeichen|Vorgang|Policen?-?Nr\.?)\s*[:#]?\s*\S+\b/gi, "[REDACTED_REF]");
+}
+
+async function extractTextFromUpload(file) {
+  if (!file) return "";
+
+  if (file.mimetype === "application/pdf") {
+    const dataBuffer = fs.readFileSync(file.path);
+    const pdfData = await pdf(dataBuffer);
+    return pdfData.text || "";
+  }
+
+  if (file.mimetype?.startsWith("image/")) {
+    const result = await Tesseract.recognize(file.path, "deu");
+    return result?.data?.text || "";
+  }
+
+  return "";
+}
+
+async function retrieveLegalSources(_sanitizedText) {
+  if (!_sanitizedText || !dbPool) return [];
+
+  const embRes = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_EMBEDDING_MODEL,
+      input: _sanitizedText.slice(0, 8000),
+    }),
+  });
+  if (!embRes.ok) throw new Error(`Embeddings HTTP ${embRes.status}`);
+
+  const embJson = await embRes.json();
+  const embedding = embJson?.data?.[0]?.embedding;
+  if (!Array.isArray(embedding)) return [];
+
+  const vectorLiteral = `[${embedding.join(",")}]`;
+  const { rows } = await dbPool.query(
+    `
+      WITH active_version AS (
+        SELECT value AS version_tag
+        FROM law_dataset_meta
+        WHERE key = 'active_version_tag'
+      )
+      SELECT lc.law, lc.section, lc.title, lc.text, lc.source,
+             1 - (lc.embedding <=> $1::vector) AS score
+      FROM law_chunks lc
+      WHERE (
+        lc.version_tag = (SELECT version_tag FROM active_version)
+        OR NOT EXISTS (SELECT 1 FROM active_version)
+      )
+      ORDER BY lc.embedding <=> $1::vector
+      LIMIT $2
+    `,
+    [vectorLiteral, LEGAL_TOP_K]
+  );
+
+  return rows.map((r) => ({
+    law: r.law,
+    section: r.section,
+    title: r.title,
+    text: r.text,
+    source: r.source,
+    score: typeof r.score === "number" ? Number(r.score.toFixed(4)) : r.score,
+  }));
+}
+
+function computeFinancialRisk(text = "") {
+  const euros = [...text.matchAll(/(\d{1,3}(?:[.\s]\d{3})*|\d+)\s*(€|EUR)/gi)]
+    .map((m) => Number(String(m[1]).replace(/[.\s]/g, "")))
+    .filter((n) => Number.isFinite(n));
+
+  const max = euros.length ? Math.max(...euros) : 0;
+  if (max >= 5000) return "high";
+  if (max >= 500) return "medium";
+  return "low";
+}
+
+async function openaiChatStrictJSON({ system, user, schema, schemaName }) {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      temperature: 0.2,
+      store: false,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: schemaName,
+          strict: true,
+          schema,
+        },
+      },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+  const content = json?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("OpenAI empty content");
+
+  return JSON.parse(content);
+}
+
+async function sendHighRiskToManager(summaryObj, meta = {}) {
+  if (!MANAGER_WEBHOOK_URL) return false;
+
+  const payload = {
+    timestamp: new Date().toISOString(),
+    client_status: meta.clientStatus || "unknown",
+    riskLevel: meta.riskLevel || "high",
+    financialRisk: meta.financialRisk || "unknown",
+    manager_summary: summaryObj, // no PII by contract
+  };
+
+  const r = await fetch(MANAGER_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`Manager webhook HTTP ${r.status}`);
+  return true;
+}
+
+const RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    analysis: { type: "string" },
+    riskLevel: { type: "string", enum: ["low", "medium", "high"] },
+    financialRisk: { type: "string", enum: ["low", "medium", "high"] },
+  },
+  required: ["analysis", "riskLevel", "financialRisk"],
+};
+
+const SUMMARY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: { type: "string" },
+    whyHighRisk: { type: "string" },
+    nextActionForManager: { type: "string" },
+  },
+  required: ["summary", "whyHighRisk", "nextActionForManager"],
+};
 
 // ===== чат =====
 app.post("/chat", upload.single("file"), async (req, res) => {
+  const file = req.file;
   try {
-    let extractedText = "";
-    if (req.file) {
-      if (req.file.mimetype === "application/pdf") {
-        const dataBuffer = fs.readFileSync(req.file.path);
-        const pdfData = await pdf(dataBuffer);
-        extractedText = pdfData.text;
-      }
+    const message = String(req.body?.message || "");
+    const clientStatus = req.body?.client_status === "yes" ? "yes" : "no";
+    const bodyExtractedText = String(req.body?.extractedText || "");
+    const fileExtractedText = await extractTextFromUpload(file);
+    const extractedText = fileExtractedText || bodyExtractedText;
 
-      if (req.file.mimetype.startsWith("image/")) {
-        const result = await Tesseract.recognize(req.file.path, "deu");
-        extractedText = result.data.text;
-      }
-    }
+    const combinedText = `${message}\n\n[DOCUMENT_TEXT]\n${extractedText}`;
+    const sanitizedText = redactPII(combinedText);
+    const legalSources = await retrieveLegalSources(sanitizedText);
+    const financialRiskServer = computeFinancialRisk(sanitizedText);
 
-    const clientStatus = req.body.client_status || "unknown";
     const system = `
-Ты юридический AI-агент для Германии (RechtsInfo).
+Ты — RechtsInfo AI Agent (DE/RU), юридический помощник по Германии.
+ВЫВОДИ ТОЛЬКО JSON.
 
-Твоя задача:
-1. Проанализировать ситуацию.
-2. Определить:
-   - юридическую категорию
-   - уровень процессуального риска
-   - уровень финансового риска (low | medium | high)
-3. Дать структурированный ответ:
-   1. Краткий вывод
-   2. В чём проблема
-   3. Возможные действия (1–3 шага)
-   4. Риски и сроки
-   5. Один уточняющий вопрос
+Входные параметры:
+- client_status: ${clientStatus}
 
-Финансовый риск:
-- low — минимальные или маловероятные расходы
-- medium — возможны расходы или штрафы
-- high — вероятны судебные издержки, адвокатские расходы или серьёзные финансовые последствия
-
-Если финансовый риск medium или high:
-- уместно кратко и нейтрально упомянуть возможные судебные издержки.
-- при необходимости аккуратно упомянуть роль правовой защиты (Rechtsschutzversicherung), без навязчивой рекламы.
-
-Если client_status = yes:
-- можешь предложить проверить покрытие полиса.
-
-Если client_status = no:
-- упоминай правовую защиту только если это действительно влияет на решение пользователя.
-
-Если ситуация связана с судом, сроками или официальными требованиями:
-- обязательно упомяни возможные судебные издержки.
-- кратко поясни роль Rechtsschutzversicherung (страховки правовой защиты) без навязчивой рекламы.
-- если client_status=yes, предложи проверить покрытие полиса.
-- если client_status=no, упомяни, что такие ситуации часто требуют правовой защиты.
+Главные правила:
+1) Ссылки на закон (§, закон: BGB/ZPO/SGB/…): ТОЛЬКО если норма есть в LEGAL_SOURCES. НИКОГДА не выдумывай.
+2) Если точной нормы нет в LEGAL_SOURCES — так и скажи: "точную норму нужно уточнить", без догадок.
+3) Не проси телефон, не повторяй личные данные.
+4) Структура текста внутри analysis:
+   - Краткий вывод
+   - В чём юридическая проблема
+   - Возможные действия (по шагам)
+   - Риски и сроки (в т.ч. судебные издержки если уместно)
+   - Роль Rechtsschutzversicherung (если уместно, без давления)
+   - Уточняющий вопрос
 
 При анализе юридических ситуаций:
 - указывай применимые нормы права (например: § 286 BGB, § 355 BGB, § 623 BGB).
@@ -96,66 +252,75 @@ app.post("/chat", upload.single("file"), async (req, res) => {
 - укажи возможные последствия.
 - сошлись на применимые нормы права.
 
+Если ситуация связана с судом, сроками или официальными требованиями:
+- обязательно упомяни возможные судебные издержки.
+- кратко поясни роль Rechtsschutzversicherung (страховки правовой защиты) без навязчивой рекламы.
+- если client_status=yes, предложи проверить покрытие полиса.
+- если client_status=no, упомяни, что такие ситуации часто требуют правовой защиты.
+
 Не продавать.
 Не давить.
 Не обещать исход.
 Не запрашивать лишние персональные данные.
 
-Ответ должен быть в формате JSON:
+LEGAL_SOURCES:
+${JSON.stringify(legalSources)}
+`.trim();
 
-{
-  "analysis": "...",
-  "riskLevel": "low | medium | high",
-  "financialRisk": "low | medium | high"
-}
+    const user = sanitizedText;
 
-Контекст пользователя:
-client_status = ${clientStatus}
-`;
-    const bodyExtractedText = req.body.extractedText || "";
-    extractedText = extractedText || bodyExtractedText;
-
-    const messages = [
-      { role: "system", content: system },
-      {
-        role: "user",
-        content: `
-Вопрос пользователя:
-${req.body.message}
-
-Текст документа:
-${extractedText}
-`
-      }
-    ];
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages,
-      temperature: 0.2
+    const ai = await openaiChatStrictJSON({
+      system,
+      user,
+      schema: RESPONSE_SCHEMA,
+      schemaName: "rechtsinfo_response",
     });
 
-    const raw = response?.choices?.[0]?.message?.content ?? "";
+    ai.financialRisk = financialRiskServer;
 
-    let parsed;
+    if (ai.riskLevel === "high") {
+      const sumSystem = `
+Ты — помощник менеджера. Выведи ТОЛЬКО JSON.
+Запрещено: телефоны, email, адреса, IBAN, номера дел, любые идентификаторы.
+`.trim();
 
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      parsed = {
-        analysis: raw,
-        riskLevel: "medium"
-      };
+      const sumUser = `
+Сформируй краткое резюме high-risk кейса.
+Текст клиента (уже очищенный):
+${sanitizedText}
+
+Ответ агента:
+${ai.analysis}
+`.trim();
+
+      const summaryObj = await openaiChatStrictJSON({
+        system: sumSystem,
+        user: sumUser,
+        schema: SUMMARY_SCHEMA,
+        schemaName: "rechtsinfo_manager_summary",
+      });
+
+      await sendHighRiskToManager(summaryObj, {
+        clientStatus,
+        riskLevel: ai.riskLevel,
+        financialRisk: ai.financialRisk,
+      });
+      ai.managerSummary = summaryObj;
+      ai.managerEscalated = true;
     }
 
-    res.json(parsed);
+    return res.json(ai);
 
   } catch (error) {
-    console.error("OpenAI error:", error);
-    res.status(500).json({ error: "Ошибка сервера" });
+    console.error("CHAT_FAILED", error?.message || error);
+    return res.status(500).json({ error: "CHAT_FAILED" });
   } finally {
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
+    if (file?.path) {
+      try {
+        await fsPromises.unlink(file.path);
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 });

@@ -251,7 +251,6 @@
 
     <!-- СКРЫТЫЙ INPUT ДЛЯ ФАЙЛОВ -->
     <input type="file" id="hidden-file-input" style="display: none;" onchange="handleFileSelect(this)">
-    <input type="file" id="fileUpload" accept=".pdf,image/*">
 
     <!-- ПРОМО -->
     <div id="promo-modal" class="promo-overlay hidden">
@@ -401,6 +400,7 @@
         let userData = { name: "", surname: "", phone: "", email: "" };
         let lastUserMessage = "";
         let lastAnalysis = "";
+        let pendingChatFile = null;
         let userUploads = []; // Список загруженных пользователем файлов
 
         // Функция отправки в Google Sheets (только учетные данные и язык)
@@ -816,15 +816,33 @@ Die Anwendung übermittelt keine Daten automatisch ohne aktive Handlung des Nutz
     ? "http://localhost:3000/chat"
     : "/chat";
 
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: userInput })
-  });
+  const clientStatus = document.querySelector('input[name="clientStatus"]:checked')?.value || "unknown";
+  let response;
+
+  if (pendingChatFile) {
+    const formData = new FormData();
+    formData.append("message", userInput);
+    formData.append("client_status", clientStatus);
+    formData.append("file", pendingChatFile);
+
+    response = await fetch(API_URL, {
+      method: "POST",
+      body: formData
+    });
+  } else {
+    response = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: userInput, client_status: clientStatus })
+    });
+  }
 
   const data = await response.json();
 
   loadingRow.remove();
+  pendingChatFile = null;
+  const hiddenFileInput = document.getElementById('hidden-file-input');
+  if (hiddenFileInput) hiddenFileInput.value = "";
   lastAnalysis = data.analysis || "";
   addBotMsg(data.analysis);
 
@@ -848,19 +866,19 @@ Die Anwendung übermittelt keine Daten automatisch ohne aktive Handlung des Nutz
         function handleFileSelect(input) {
             if (input.files && input.files[0]) {
                 const file = input.files[0];
+                pendingChatFile = file;
                 
-                // 1. Добавляем в "Мои документы"
-                userUploads.push(file.name);
-                renderDocs(); // Обновляем экран документов
-                
-                // 2. Показываем в чате
+                // Показываем в чате, что файл прикреплен к следующему вопросу
                 const d = document.createElement('div'); 
                 d.className = 'msg user'; 
                 d.innerHTML = `<span class="file-msg">📎 ${file.name}</span>`;
                 document.getElementById('chat-box').appendChild(d);
                 
-                // 3. Реакция бота
-                setTimeout(() => addBotMsg(lang==='ru' ? `Я получил файл "${file.name}". Сохранил его в папку "Мои документы".` : `Datei "${file.name}" empfangen.`), 800);
+                setTimeout(() => addBotMsg(
+                    lang === 'ru'
+                        ? `Файл "${file.name}" прикреплён. Я проанализирую его вместе с вашим следующим вопросом.`
+                        : `Datei "${file.name}" wurde angehängt. Ich analysiere sie zusammen mit Ihrer nächsten Frage.`
+                ), 800);
             }
         }
 
