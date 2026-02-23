@@ -4,7 +4,7 @@ import fsSync from "fs";
 import path from "path";
 import { spawn } from "child_process";
 import { Pool } from "pg";
-import tar from "tar";
+import * as tar from "tar";
 import unzipper from "unzipper";
 
 const HARVEST_URL = process.env.LAW_HARVEST_URL || "https://harvest.deutsche-bundesgesetze.de/";
