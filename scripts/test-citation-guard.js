@@ -54,7 +54,7 @@ runCase("replaces unverified invented norm", () => {
   const input = "Также применим § 999 BGB.";
   const out = sanitizeAnswerCitations(input, allowlist.allowedNorms);
   assert(
-    out.sanitizedText.includes("соответствующая норма (не подтверждена источниками)"),
+    out.sanitizedText.includes("соответствующая норма"),
     "Invented norm was not replaced"
   );
   assert(out.removedNorms.includes("§ 999 BGB"), "Removed norm was not logged");

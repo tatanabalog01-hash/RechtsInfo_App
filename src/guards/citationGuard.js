@@ -150,7 +150,7 @@ export function sanitizeAnswerCitations(answerText, allowedNorms) {
       removed.add(normalizeNorm(raw));
       // Replace the raw mention with a neutral phrase (so смысл не ломается)
       // Делай замену точечно (first occurrence), чтобы не снести всё подряд.
-      sanitized = sanitized.replace(raw, "соответствующая норма (не подтверждена источниками)");
+      sanitized = sanitized.replace(raw, "соответствующая норма");
     } else if (res.replacedFrom) {
       replaced.push({ from: res.replacedFrom, to: res.norm });
       sanitized = sanitized.replace(raw, res.norm);

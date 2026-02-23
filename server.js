@@ -69,10 +69,7 @@ async function extractTextFromUpload(file) {
   return "";
 }
 
-async function retrieveLegalSources(_queryText, { topK } = {}) {
-  if (!_queryText || !dbPool) return [];
-  const limit = Number.isFinite(topK) && topK > 0 ? topK : LEGAL_TOP_K;
-
+async function getTextEmbedding(inputText) {
   const embRes = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
     headers: {
@@ -81,16 +78,23 @@ async function retrieveLegalSources(_queryText, { topK } = {}) {
     },
     body: JSON.stringify({
       model: OPENAI_EMBEDDING_MODEL,
-      input: _queryText.slice(0, 8000),
+      input: String(inputText || "").slice(0, 8000),
     }),
   });
   if (!embRes.ok) throw new Error(`Embeddings HTTP ${embRes.status}`);
 
   const embJson = await embRes.json();
-  const embedding = embJson?.data?.[0]?.embedding;
+  return embJson?.data?.[0]?.embedding;
+}
+
+async function retrieveLegalSources(_queryText, { topK, lawCodes } = {}) {
+  if (!_queryText || !dbPool) return [];
+  const limit = Number.isFinite(topK) && topK > 0 ? topK : LEGAL_TOP_K;
+  const embedding = await getTextEmbedding(_queryText);
   if (!Array.isArray(embedding)) return [];
 
   const vectorLiteral = `[${embedding.join(",")}]`;
+  const lawCodeFilter = Array.isArray(lawCodes) ? [...new Set(lawCodes.filter(Boolean))] : [];
   const { rows } = await dbPool.query(
     `
       WITH active_version AS (
@@ -105,10 +109,14 @@ async function retrieveLegalSources(_queryText, { topK } = {}) {
         lc.version_tag = (SELECT version_tag FROM active_version)
         OR NOT EXISTS (SELECT 1 FROM active_version)
       )
+      AND (
+        COALESCE(array_length($3::text[], 1), 0) = 0
+        OR lc.law = ANY($3::text[])
+      )
       ORDER BY lc.embedding <=> $1::vector
       LIMIT $2
     `,
-    [vectorLiteral, limit]
+    [vectorLiteral, limit, lawCodeFilter]
   );
 
   return rows.map((r) => ({
@@ -119,6 +127,28 @@ async function retrieveLegalSources(_queryText, { topK } = {}) {
     source: r.source,
     score: typeof r.score === "number" ? Number(r.score.toFixed(4)) : r.score,
   }));
+}
+
+async function selectTopLawCodes(queryText, { topN = 3 } = {}) {
+  if (!dbPool) return [];
+  const embedding = await getTextEmbedding(queryText);
+  if (!Array.isArray(embedding)) return [];
+  const vectorLiteral = `[${embedding.join(",")}]`;
+  try {
+    const { rows } = await dbPool.query(
+      `
+        SELECT law_code
+        FROM law_catalog
+        ORDER BY embedding <-> $1::vector
+        LIMIT $2
+      `,
+      [vectorLiteral, topN]
+    );
+    return rows.map((r) => r.law_code).filter(Boolean);
+  } catch (error) {
+    console.warn("LAW_CATALOG_LOOKUP_FAILED", error?.message || error);
+    return [];
+  }
 }
 
 function computeFinancialRisk(text = "") {
@@ -251,7 +281,13 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       ? buildLegalBasisQuery(userText)
       : userText;
     const topK = legalBasisMode ? 10 : 6;
-    let legalSources = await retrieveLegalSources(retrievalQuery, { topK });
+    const lawCatalogTopLawCodes = legalBasisMode
+      ? await selectTopLawCodes(retrievalQuery, { topN: 3 })
+      : [];
+    let legalSources = await retrieveLegalSources(retrievalQuery, {
+      topK,
+      lawCodes: lawCatalogTopLawCodes,
+    });
     let legalSourcesWithIds = legalSources.map((src, index) => ({
       ...src,
       id: `S${index + 1}`,
@@ -290,6 +326,7 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       allowedNormsPreview: [...normAllowlist.allowedNorms].slice(0, 10),
       retrievalMode: legalBasisMode ? "legal_basis_enriched" : "default",
       retrievalTopK: topK,
+      lawCatalogTopLawCodes,
       fallbackRetrievalUsed,
       sourcesPreview: legalSourcesWithIds.slice(0, 5).map((s) => ({
         id: s.id,
