@@ -9,6 +9,7 @@ import Tesseract from "tesseract.js";
 import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
+import { buildNormAllowlist, sanitizeAnswerCitations } from "./src/guards/citationGuard.js";
 
 dotenv.config();
 
@@ -211,6 +212,7 @@ const SUMMARY_SCHEMA = {
 // ===== чат =====
 app.post("/chat", upload.single("file"), async (req, res) => {
   const file = req.file;
+  const requestId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   try {
     const message = String(req.body?.message || "");
     const clientStatus = req.body?.client_status === "yes" ? "yes" : "no";
@@ -218,9 +220,18 @@ app.post("/chat", upload.single("file"), async (req, res) => {
     const fileExtractedText = await extractTextFromUpload(file);
     const extractedText = fileExtractedText || bodyExtractedText;
 
-    const combinedText = `${message}\n\n[DOCUMENT_TEXT]\n${extractedText}`;
-    const sanitizedText = redactPII(combinedText);
+    const hasDocumentText = Boolean(extractedText && extractedText.trim());
+    const sanitizedMessage = redactPII(message);
+    const sanitizedDocumentText = hasDocumentText ? redactPII(extractedText) : "";
+    const sanitizedText = hasDocumentText
+      ? `${sanitizedMessage}\n\n[DOCUMENT_TEXT]\n${sanitizedDocumentText}`
+      : sanitizedMessage;
     const legalSources = await retrieveLegalSources(sanitizedText);
+    const legalSourcesWithIds = legalSources.map((src, index) => ({
+      ...src,
+      id: `S${index + 1}`,
+    }));
+    const normAllowlist = buildNormAllowlist(legalSourcesWithIds);
     const financialRiskServer = computeFinancialRisk(sanitizedText);
 
     const system = `
@@ -241,6 +252,7 @@ app.post("/chat", upload.single("file"), async (req, res) => {
    - Риски и сроки (в т.ч. судебные издержки если уместно)
    - Роль Rechtsschutzversicherung (если уместно, без давления)
    - Уточняющий вопрос
+5) Если пользователь просто здоровается или задаёт общий вопрос без документа, не требуй документ и отвечай по существу.
 
 При анализе юридических ситуаций:
 - указывай применимые нормы права (например: § 286 BGB, § 355 BGB, § 623 BGB).
@@ -268,11 +280,11 @@ app.post("/chat", upload.single("file"), async (req, res) => {
 Не обещать исход.
 Не запрашивать лишние персональные данные.
 
-LEGAL_SOURCES:
-${JSON.stringify(legalSources)}
-`.trim();
+LEGAL_SOURCES:\n${JSON.stringify(legalSourcesWithIds)}\n\nCRITICAL RULE - LAW CITATIONS (NO HALLUCINATIONS):\nYou may cite legal norms (e.g., § … BGB, Art. … DSGVO, § … SGB) ONLY if the norm string appears in ALLOWED_NORMS below.\n- You MUST copy-paste the norm EXACTLY as written in ALLOWED_NORMS (character-for-character).\n- If a relevant norm is NOT in ALLOWED_NORMS, do NOT cite it. Instead say: "Не могу подтвердить конкретную норму по извлечённым источникам" and ask what document/details to retrieve next.\n- Never invent §, Absatz, Satz, Nummer, Buchstabe, Article, or law code.\n- If you cite a norm, append the source marker in brackets exactly like: [S#] (example: "§ 823 Abs. 1 BGB [S2]").\n- Do not use any [S#] that is not present in the provided LEGAL_SOURCES.\n\nALLOWED_NORMS:\n${normAllowlist.allowedNormsText || "(none)"}\n\nNORM_SOURCES (use these [S#] markers):\n${normAllowlist.normSourcesText || "(none)"}\n`.trim();
 
-    const user = sanitizedText;
+    const user = hasDocumentText
+      ? `Вопрос пользователя:\n${sanitizedMessage}\n\nТекст документа:\n${sanitizedDocumentText}`
+      : `Вопрос пользователя:\n${sanitizedMessage}`;
 
     const ai = await openaiChatStrictJSON({
       system,
@@ -281,6 +293,16 @@ ${JSON.stringify(legalSources)}
       schemaName: "rechtsinfo_response",
     });
 
+    const citationSanitization = sanitizeAnswerCitations(ai.analysis, normAllowlist.allowedNorms);
+    ai.analysis = citationSanitization.sanitizedText;
+    if (citationSanitization.removedNorms.length || citationSanitization.replacedNorms.length) {
+      console.log("CITATION_GUARD", {
+        requestId,
+        timestamp: new Date().toISOString(),
+        removedNorms: citationSanitization.removedNorms,
+        replacedNorms: citationSanitization.replacedNorms,
+      });
+    }
     ai.financialRisk = financialRiskServer;
 
     if (ai.riskLevel === "high") {

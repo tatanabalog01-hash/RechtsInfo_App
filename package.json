@@ -18,6 +18,7 @@
     "ingest:laws": "node scripts/ingest-laws.js",
     "db:setup": "node db-setup.cjs",
     "check-db": "node check-db.cjs",
-    "laws:update": "node scripts/update-laws-monthly.js"
+    "laws:update": "node scripts/update-laws-monthly.js",
+    "test:citation-guard": "node scripts/test-citation-guard.js"
   }
 }
