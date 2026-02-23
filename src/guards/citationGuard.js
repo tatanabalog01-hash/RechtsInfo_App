@@ -46,6 +46,13 @@ export function buildNormAllowlist(sources, { maxNorms = 80 } = {}) {
     ]
       .filter(Boolean)
       .join("\n");
+    const lawCode =
+      src?.law_code ||
+      src?.meta?.law_code ||
+      src?.meta?.lawCode ||
+      src?.meta?.law_short ||
+      src?.meta?.short ||
+      null;
     const norms = extractNorms(text);
 
     for (const norm of norms) {
