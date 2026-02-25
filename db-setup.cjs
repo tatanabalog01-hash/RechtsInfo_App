@@ -6,9 +6,9 @@ const path = require("path");
 const { Client } = require("pg");
 
 async function main() {
-  const DATABASE_URL = process.env.DATABASE_URL;
+  const DATABASE_URL = process.env.DATABASE_URL_WRITE || process.env.DATABASE_URL;
   if (!DATABASE_URL) {
-    console.error("ERROR: DATABASE_URL is not set");
+    console.error("ERROR: DATABASE_URL_WRITE or DATABASE_URL is not set");
     process.exit(1);
   }
 

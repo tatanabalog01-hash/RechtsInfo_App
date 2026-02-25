@@ -5,7 +5,7 @@ import { Pool } from "pg";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_URL_WRITE || process.env.DATABASE_URL;
 const LAW_XML_DIR = process.env.LAW_XML_DIR || path.join(process.cwd(), "kb", "laws_xml");
 const CHUNK_MAX_CHARS = Number(process.env.LAW_CHUNK_MAX_CHARS || 1800);
 const EMB_BATCH_SIZE = Number(process.env.LAW_EMBED_BATCH_SIZE || 32);
@@ -15,7 +15,7 @@ const LAW_SOURCE_URL = process.env.LAW_SOURCE_URL || "";
 const LAW_INGEST_MODE = process.env.LAW_INGEST_MODE || "replace"; // replace | append
 
 if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
-if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
+if (!DATABASE_URL) throw new Error("DATABASE_URL_WRITE or DATABASE_URL is required");
 
 const pool = new Pool({
   connectionString: DATABASE_URL,

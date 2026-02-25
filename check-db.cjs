@@ -4,9 +4,9 @@ require("dotenv").config();
 const { Client } = require("pg");
 
 (async () => {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL_WRITE || process.env.DATABASE_URL;
   if (!url) {
-    console.log("ERROR: DATABASE_URL not set");
+    console.log("ERROR: DATABASE_URL_WRITE or DATABASE_URL not set");
     process.exit(1);
   }
 

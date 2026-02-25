@@ -11,11 +11,11 @@ const HARVEST_URL = process.env.LAW_HARVEST_URL || "https://harvest.deutsche-bun
 const TMP_DIR = process.env.LAW_TMP_DIR || path.join(process.cwd(), "kb", "_monthly_tmp");
 const ARCHIVE_DIR = process.env.LAW_ARCHIVE_DIR || path.join(TMP_DIR, "archives");
 const LAW_STAGING_ROOT = process.env.LAW_STAGING_ROOT || path.join(process.cwd(), "kb", "laws_xml", "downloads");
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.DATABASE_URL_WRITE || process.env.DATABASE_URL;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 
-if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
+if (!DATABASE_URL) throw new Error("DATABASE_URL_WRITE or DATABASE_URL is required");
 if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is required");
 
 const pool = new Pool({
