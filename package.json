@@ -17,6 +17,7 @@
   "scripts": {
     "ingest:laws": "node scripts/ingest-laws.js",
     "ingest:laws:batched": "node scripts/ingest-laws-batched.js",
+    "ingest:laws:labor-pack": "powershell -ExecutionPolicy Bypass -File .\\scripts\\ingest-laws-labor-pack.ps1",
     "db:setup": "node db-setup.cjs",
     "check-db": "node check-db.cjs",
     "laws:update": "node scripts/update-laws-monthly.js",
