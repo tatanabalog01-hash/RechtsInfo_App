@@ -11,6 +11,7 @@ const UNZIPPED_DIR =
 const STATE_FILE =
   process.env.LAW_BATCH_STATE_FILE ||
   path.join(ROOT, "kb", "_monthly_tmp", `ingest-progress-${VERSION_TAG}.json`);
+const MAX_DIRS_PER_RUN = Number(process.env.LAW_BATCH_MAX_DIRS || 0);
 
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
@@ -67,10 +68,18 @@ async function main() {
   console.log(`Law dirs total: ${lawDirs.length}`);
   console.log(`Already done: ${done.size}`);
   console.log(`State file: ${STATE_FILE}`);
+  if (MAX_DIRS_PER_RUN > 0) {
+    console.log(`Max dirs this run: ${MAX_DIRS_PER_RUN}`);
+  }
 
   let processedThisRun = 0;
 
   for (const dir of lawDirs) {
+    if (MAX_DIRS_PER_RUN > 0 && processedThisRun >= MAX_DIRS_PER_RUN) {
+      console.log(`\nReached LAW_BATCH_MAX_DIRS=${MAX_DIRS_PER_RUN}. Stopping cleanly.`);
+      break;
+    }
+
     const lawKey = path.basename(dir);
     if (done.has(lawKey)) continue;
 
