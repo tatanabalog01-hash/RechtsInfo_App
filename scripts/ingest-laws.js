@@ -22,6 +22,18 @@ const pool = new Pool({
   ssl: DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
 });
 
+async function markVersionFailed(versionTag) {
+  const c = await pool.connect();
+  try {
+    await c.query(
+      "UPDATE law_dataset_versions SET status = 'failed', imported_at = NOW() WHERE version_tag = $1",
+      [versionTag]
+    );
+  } finally {
+    c.release();
+  }
+}
+
 function textBetween(xml, tag) {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
   const m = xml.match(re);
@@ -200,10 +212,9 @@ async function main() {
   } catch (err) {
     try {
       await client.query("ROLLBACK");
-      await client.query(
-        "UPDATE law_dataset_versions SET status = 'failed', imported_at = NOW() WHERE version_tag = $1",
-        [LAW_VERSION_TAG]
-      );
+    } catch {}
+    try {
+      await markVersionFailed(LAW_VERSION_TAG);
     } catch {}
     throw err;
   } finally {
